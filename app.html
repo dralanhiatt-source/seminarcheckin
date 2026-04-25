@@ -1,0 +1,2022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SeminarCheckIn CE — Attendee Management</title>
+
+<!-- jsPDF CDN -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<!-- Stripe.js CDN -->
+<!-- IMPORTANT: Replace 'pk_test_REPLACE_WITH_KEY' below with your Stripe publishable key.
+     In production, load this from a server-side env variable or build config,
+     never hard-code a live secret key in client-side code. -->
+<script src="https://js.stripe.com/v3/"></script>
+
+<style>
+  /* ============================================================
+     RESET & BASE
+  ============================================================ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --navy:      #1B2A4A;
+    --navy-dark: #111d35;
+    --navy-mid:  #243459;
+    --accent:    #3B82F6;
+    --accent-h:  #2563EB;
+    --teal:      #0EA5E9;
+    --green:     #10B981;
+    --red:       #EF4444;
+    --amber:     #F59E0B;
+    --white:     #FFFFFF;
+    --off:       #F1F5F9;
+    --muted:     #94A3B8;
+    --border:    #334155;
+    --card:      #1e3250;
+    --text:      #E2E8F0;
+    --text-dim:  #94A3B8;
+    --radius:    10px;
+    --shadow:    0 4px 24px rgba(0,0,0,.35);
+  }
+  html { font-size: 16px; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--navy-dark);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.55;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  img { max-width: 100%; }
+
+  /* ============================================================
+     SCROLLBAR
+  ============================================================ */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: var(--navy-dark); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; }
+
+  /* ============================================================
+     LAYOUT
+  ============================================================ */
+  #app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* Top-bar / Nav */
+  #topbar {
+    background: var(--navy);
+    border-bottom: 1px solid var(--border);
+    padding: .75rem 1.25rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .75rem;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    box-shadow: 0 2px 12px rgba(0,0,0,.4);
+  }
+  #topbar .brand {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: -.3px;
+  }
+  #topbar .brand span.badge {
+    background: var(--accent);
+    color: #fff;
+    font-size: .6rem;
+    padding: .15rem .4rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    font-weight: 600;
+  }
+  #topbar nav { display: flex; gap: .5rem; flex-wrap: wrap; }
+  #topbar nav button {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-dim);
+    padding: .4rem .85rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: .82rem;
+    font-weight: 500;
+    transition: all .15s;
+  }
+  #topbar nav button:hover,
+  #topbar nav button.active {
+    background: var(--navy-mid);
+    border-color: var(--border);
+    color: var(--white);
+  }
+  #topbar .user-info {
+    font-size: .8rem;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  #topbar .user-info button {
+    background: transparent;
+    border: none;
+    color: var(--red);
+    cursor: pointer;
+    font-size: .78rem;
+    padding: .2rem .5rem;
+    border-radius: 4px;
+    transition: background .15s;
+  }
+  #topbar .user-info button:hover { background: rgba(239,68,68,.15); }
+
+  /* Main content */
+  #main {
+    flex: 1;
+    padding: 1.5rem 1.25rem;
+    max-width: 1100px;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  /* ============================================================
+     VIEWS / SCREENS
+  ============================================================ */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ============================================================
+     CARDS
+  ============================================================ */
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+  }
+  .card + .card { margin-top: 1.25rem; }
+  .card h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .card h2 .icon { font-size: 1.2rem; }
+
+  /* ============================================================
+     FORMS
+  ============================================================ */
+  .form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+  }
+  .form-group { display: flex; flex-direction: column; gap: .35rem; }
+  .form-group label {
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: .4px;
+  }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    background: var(--navy-dark);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: .6rem .85rem;
+    border-radius: 6px;
+    font-size: .92rem;
+    outline: none;
+    transition: border .15s, box-shadow .15s;
+    width: 100%;
+  }
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(59,130,246,.18);
+  }
+  .form-group select option { background: var(--navy); }
+  .form-group textarea { resize: vertical; min-height: 80px; }
+  .form-group input::placeholder { color: var(--muted); }
+
+  /* ============================================================
+     BUTTONS
+  ============================================================ */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .6rem 1.2rem;
+    border-radius: 7px;
+    font-size: .88rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+  .btn-success { background: var(--green); color: #fff; }
+  .btn-success:hover:not(:disabled) { background: #059669; }
+  .btn-danger  { background: var(--red); color: #fff; }
+  .btn-danger:hover:not(:disabled)  { background: #DC2626; }
+  .btn-amber   { background: var(--amber); color: #fff; }
+  .btn-amber:hover:not(:disabled)   { background: #D97706; }
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+  }
+  .btn-ghost:hover:not(:disabled) { background: var(--navy-mid); }
+  .btn-sm { padding: .35rem .75rem; font-size: .78rem; }
+  .btn-full { width: 100%; justify-content: center; }
+
+  /* ============================================================
+     BADGES / STATUS
+  ============================================================ */
+  .badge {
+    display: inline-block;
+    padding: .2rem .6rem;
+    border-radius: 99px;
+    font-size: .72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+  }
+  .badge-registered { background: rgba(148,163,184,.15); color: var(--muted); border: 1px solid var(--border); }
+  .badge-checkedin  { background: rgba(16,185,129,.15);  color: var(--green); border: 1px solid rgba(16,185,129,.3); }
+  .badge-checkedout { background: rgba(59,130,246,.15);  color: var(--accent); border: 1px solid rgba(59,130,246,.3); }
+
+  /* ============================================================
+     TABLE
+  ============================================================ */
+  .table-wrap { overflow-x: auto; border-radius: 8px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .84rem;
+  }
+  table thead tr {
+    background: var(--navy-mid);
+    text-transform: uppercase;
+    font-size: .72rem;
+    letter-spacing: .5px;
+    color: var(--text-dim);
+  }
+  table thead th {
+    padding: .7rem .9rem;
+    text-align: left;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  table tbody tr {
+    border-bottom: 1px solid rgba(51,65,85,.4);
+    transition: background .12s;
+  }
+  table tbody tr:hover { background: rgba(59,130,246,.06); }
+  table tbody td {
+    padding: .65rem .9rem;
+    vertical-align: middle;
+  }
+  .action-btns { display: flex; gap: .4rem; flex-wrap: wrap; }
+
+  /* ============================================================
+     STATS
+  ============================================================ */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+  .stat-card {
+    background: var(--navy-mid);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.1rem 1rem;
+    text-align: center;
+  }
+  .stat-card .stat-value {
+    font-size: 2rem;
+    font-weight: 800;
+    color: var(--white);
+    line-height: 1;
+  }
+  .stat-card .stat-label {
+    font-size: .75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    margin-top: .35rem;
+  }
+  .stat-card.green .stat-value  { color: var(--green); }
+  .stat-card.blue .stat-value   { color: var(--accent); }
+  .stat-card.amber .stat-value  { color: var(--amber); }
+
+  /* ============================================================
+     PIN DISPLAY BOX
+  ============================================================ */
+  .pin-box {
+    background: var(--navy-dark);
+    border: 2px dashed var(--accent);
+    border-radius: 10px;
+    padding: 1.2rem;
+    text-align: center;
+    margin-top: 1rem;
+  }
+  .pin-box .pin-label {
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--text-dim);
+    margin-bottom: .4rem;
+  }
+  .pin-box .pin-value {
+    font-size: 3rem;
+    font-weight: 900;
+    letter-spacing: 1rem;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+  .pin-box .pin-name {
+    margin-top: .4rem;
+    font-size: .9rem;
+    color: var(--text-dim);
+  }
+
+  /* ============================================================
+     ALERT / TOAST
+  ============================================================ */
+  #toast-container {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    max-width: 320px;
+    width: calc(100vw - 3rem);
+  }
+  .toast {
+    background: var(--navy-mid);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .85rem 1rem;
+    font-size: .84rem;
+    display: flex;
+    align-items: flex-start;
+    gap: .6rem;
+    box-shadow: 0 4px 20px rgba(0,0,0,.4);
+    animation: slideIn .25s ease;
+  }
+  .toast.success { border-left: 4px solid var(--green); }
+  .toast.error   { border-left: 4px solid var(--red); }
+  .toast.info    { border-left: 4px solid var(--accent); }
+  @keyframes slideIn {
+    from { transform: translateX(30px); opacity: 0; }
+    to   { transform: translateX(0);    opacity: 1; }
+  }
+  @keyframes fadeOut {
+    from { opacity: 1; }
+    to   { opacity: 0; transform: translateY(5px); }
+  }
+
+  /* ============================================================
+     MODAL OVERLAY
+  ============================================================ */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.65);
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    animation: fadeOverlay .2s ease;
+  }
+  @keyframes fadeOverlay {
+    from { opacity: 0; } to { opacity: 1; }
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2rem;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.5);
+    animation: popIn .22s ease;
+    position: relative;
+  }
+  @keyframes popIn {
+    from { transform: scale(.95); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1; }
+  }
+  .modal-box h3 {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .modal-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: transparent;
+    border: none;
+    color: var(--muted);
+    font-size: 1.3rem;
+    cursor: pointer;
+    padding: .25rem .5rem;
+    border-radius: 4px;
+    transition: color .15s;
+  }
+  .modal-close:hover { color: var(--red); }
+
+  /* ============================================================
+     LOGIN / SETUP SCREEN
+  ============================================================ */
+  #view-login {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 0px);
+    padding: 1.5rem;
+  }
+  .login-box {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 2.5rem 2rem;
+    width: 100%;
+    max-width: 400px;
+    box-shadow: var(--shadow);
+    text-align: center;
+  }
+  .login-box .logo {
+    font-size: 2.5rem;
+    margin-bottom: .75rem;
+  }
+  .login-box h1 {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: var(--white);
+    margin-bottom: .25rem;
+  }
+  .login-box p {
+    color: var(--text-dim);
+    font-size: .9rem;
+    margin-bottom: 1.75rem;
+  }
+  .login-box .form-group { text-align: left; }
+  .login-box .tabs {
+    display: flex;
+    background: var(--navy-dark);
+    border-radius: 8px;
+    padding: .25rem;
+    margin-bottom: 1.25rem;
+    gap: .25rem;
+  }
+  .login-box .tabs button {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: .5rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: .85rem;
+    font-weight: 600;
+    transition: all .15s;
+  }
+  .login-box .tabs button.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .hint-text {
+    font-size: .78rem;
+    color: var(--text-dim);
+    margin-top: .5rem;
+    text-align: center;
+  }
+
+  /* ============================================================
+     SEMINAR INFO BAR
+  ============================================================ */
+  .seminar-bar {
+    background: linear-gradient(135deg, var(--navy-mid), var(--navy));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1rem 1.25rem;
+    margin-bottom: 1.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem 2rem;
+    align-items: center;
+  }
+  .seminar-bar .sem-name {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--white);
+  }
+  .seminar-bar .sem-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.25rem;
+    font-size: .82rem;
+    color: var(--text-dim);
+  }
+  .seminar-bar .sem-meta span { display: flex; align-items: center; gap: .3rem; }
+  .seminar-bar .sem-actions { margin-left: auto; }
+
+  /* ============================================================
+     SEARCH BAR
+  ============================================================ */
+  .search-bar {
+    display: flex;
+    gap: .75rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+  }
+  .search-bar input {
+    flex: 1;
+    min-width: 180px;
+    background: var(--navy-dark);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: .55rem .9rem;
+    border-radius: 7px;
+    font-size: .88rem;
+    outline: none;
+  }
+  .search-bar input:focus { border-color: var(--accent); }
+
+  /* ============================================================
+     STRIPE PAYMENT ELEMENTS
+  ============================================================ */
+  #stripe-card-element {
+    background: var(--navy-dark);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .75rem .85rem;
+    margin-top: .5rem;
+  }
+  .StripeElement--focus { border-color: var(--accent) !important; }
+
+  /* ============================================================
+     DIVIDER
+  ============================================================ */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 1.25rem 0;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+  .section-header h2 {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--white);
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+  }
+  .section-header .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+  /* ============================================================
+     FOOTER
+  ============================================================ */
+  footer {
+    background: var(--navy);
+    border-top: 1px solid var(--border);
+    text-align: center;
+    padding: .75rem 1rem;
+    font-size: .75rem;
+    color: var(--text-dim);
+  }
+
+  /* ============================================================
+     RESPONSIVE
+  ============================================================ */
+  @media (max-width: 640px) {
+    #topbar nav button { padding: .35rem .6rem; font-size: .77rem; }
+    .modal-box { padding: 1.5rem 1rem; }
+    .form-grid { grid-template-columns: 1fr; }
+    .pin-box .pin-value { font-size: 2.2rem; letter-spacing: .6rem; }
+    .login-box { padding: 1.75rem 1.25rem; }
+  }
+
+  /* ============================================================
+     UTILITIES
+  ============================================================ */
+  .mt-1 { margin-top: .5rem; }
+  .mt-2 { margin-top: 1rem; }
+  .mt-3 { margin-top: 1.5rem; }
+  .mb-1 { margin-bottom: .5rem; }
+  .mb-2 { margin-bottom: 1rem; }
+  .flex { display: flex; }
+  .items-center { align-items: center; }
+  .gap-2 { gap: 1rem; }
+  .justify-between { justify-content: space-between; }
+  .text-center { text-align: center; }
+  .text-sm { font-size: .82rem; }
+  .text-muted { color: var(--text-dim); }
+  .text-green { color: var(--green); }
+  .text-red { color: var(--red); }
+  .text-amber { color: var(--amber); }
+  .fw-bold { font-weight: 700; }
+  .hidden { display: none !important; }
+  .w-full { width: 100%; }
+  .no-data {
+    text-align: center;
+    padding: 2.5rem 1rem;
+    color: var(--text-dim);
+    font-size: .9rem;
+  }
+  .no-data .icon { font-size: 2.5rem; display: block; margin-bottom: .5rem; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ============================================================
+       TOPBAR (hidden until logged in)
+  ============================================================ -->
+  <header id="topbar" class="hidden">
+    <div class="brand">
+      <span>🎓</span> SeminarCheckIn
+      <span class="badge">CE</span>
+    </div>
+    <nav id="main-nav">
+      <button data-view="dashboard" onclick="showView('dashboard')">📊 Dashboard</button>
+      <button data-view="seminar" onclick="showView('seminar')">📋 Seminar</button>
+      <button data-view="register" onclick="showView('register')">➕ Register</button>
+      <button data-view="checkin" onclick="showView('checkin')">✅ Check-In</button>
+      <button data-view="attendees" onclick="showView('attendees')">👥 Attendees</button>
+    </nav>
+    <div class="user-info">
+      <span id="nav-seminar-name" class="text-sm"></span>
+      <button onclick="doLogout()">🚪 Logout</button>
+    </div>
+  </header>
+
+  <!-- ============================================================
+       MAIN AREA
+  ============================================================ -->
+  <main id="main">
+
+    <!-- ====================================================
+         VIEW: LOGIN / SETUP
+    ==================================================== -->
+    <div id="view-login" class="view active">
+      <div class="login-box">
+        <div class="logo">🎓</div>
+        <h1>SeminarCheckIn</h1>
+        <p>CE Attendee Management Platform</p>
+
+        <div class="tabs">
+          <button id="tab-login" class="active" onclick="switchAuthTab('login')">Login</button>
+          <button id="tab-setup" onclick="switchAuthTab('setup')">First-Time Setup</button>
+        </div>
+
+        <!-- Login Form -->
+        <div id="auth-login-form">
+          <div class="form-group">
+            <label>Organizer PIN / Password</label>
+            <input type="password" id="login-pin" placeholder="Enter your PIN" maxlength="20"
+              onkeydown="if(event.key==='Enter') doLogin()" />
+          </div>
+          <button class="btn btn-primary btn-full mt-2" onclick="doLogin()">🔑 Login</button>
+          <p class="hint-text mt-1">No account yet? Use "First-Time Setup" tab.</p>
+        </div>
+
+        <!-- Setup Form -->
+        <div id="auth-setup-form" class="hidden">
+          <div class="form-group">
+            <label>Organizer Name</label>
+            <input type="text" id="setup-name" placeholder="Your name or organization" />
+          </div>
+          <div class="form-group mt-1">
+            <label>Create PIN / Password</label>
+            <input type="password" id="setup-pin" placeholder="Min 4 characters" maxlength="20" />
+          </div>
+          <div class="form-group mt-1">
+            <label>Confirm PIN / Password</label>
+            <input type="password" id="setup-pin2" placeholder="Repeat PIN" maxlength="20"
+              onkeydown="if(event.key==='Enter') doSetup()" />
+          </div>
+          <button class="btn btn-success btn-full mt-2" onclick="doSetup()">🚀 Create Account</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================
+         VIEW: DASHBOARD
+    ==================================================== -->
+    <div id="view-dashboard" class="view">
+      <div class="section-header mb-2">
+        <h2>📊 Dashboard</h2>
+        <div class="actions">
+          <button class="btn btn-ghost btn-sm" onclick="showView('seminar')">⚙️ Edit Seminar</button>
+        </div>
+      </div>
+
+      <div id="seminar-bar-dash" class="seminar-bar hidden">
+        <div>
+          <div class="sem-name" id="dash-sem-name">—</div>
+          <div class="sem-meta" id="dash-sem-meta"></div>
+        </div>
+        <div class="sem-actions">
+          <span id="dash-ce-badge" class="badge badge-checkedin"></span>
+        </div>
+      </div>
+
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="stat-total">0</div>
+          <div class="stat-label">Total Registered</div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-value" id="stat-checkedin">0</div>
+          <div class="stat-label">Checked In</div>
+        </div>
+        <div class="stat-card blue">
+          <div class="stat-value" id="stat-checkedout">0</div>
+          <div class="stat-label">Checked Out</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="stat-value" id="stat-registered">0</div>
+          <div class="stat-label">Not Yet Arrived</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="section-header">
+          <h2><span class="icon">👥</span> All Attendees</h2>
+          <div class="actions">
+            <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇️ Export CSV</button>
+            <button class="btn btn-primary btn-sm" onclick="showView('register')">➕ Add Attendee</button>
+          </div>
+        </div>
+        <div class="search-bar">
+          <input type="text" id="dash-search" placeholder="🔍 Search by name, license, email…"
+            oninput="renderDashTable()" />
+          <select id="dash-filter" onchange="renderDashTable()"
+            style="background:var(--navy-dark);border:1px solid var(--border);color:var(--text);padding:.5rem .8rem;border-radius:7px;outline:none;">
+            <option value="">All Statuses</option>
+            <option value="registered">Registered</option>
+            <option value="checkedin">Checked In</option>
+            <option value="checkedout">Checked Out</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table id="dash-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>License #</th>
+                <th>Profession</th>
+                <th>Email</th>
+                <th>PIN</th>
+                <th>Status</th>
+                <th>Check-In</th>
+                <th>Check-Out</th>
+                <th>CE Hours</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="dash-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================
+         VIEW: SEMINAR SETUP
+    ==================================================== -->
+    <div id="view-seminar" class="view">
+      <div class="section-header mb-2">
+        <h2>📋 Seminar Configuration</h2>
+      </div>
+      <div class="card">
+        <h2><span class="icon">🏫</span> Seminar Details</h2>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Seminar Name *</label>
+            <input type="text" id="sem-name" placeholder="e.g. Annual CE Symposium 2026" />
+          </div>
+          <div class="form-group">
+            <label>Date *</label>
+            <input type="date" id="sem-date" />
+          </div>
+          <div class="form-group">
+            <label>Location</label>
+            <input type="text" id="sem-location" placeholder="City, Venue" />
+          </div>
+          <div class="form-group">
+            <label>Profession Type</label>
+            <select id="sem-profession">
+              <option value="">Select Profession</option>
+              <option value="Nursing">Nursing</option>
+              <option value="Pharmacy">Pharmacy</option>
+              <option value="Physical Therapy">Physical Therapy</option>
+              <option value="Occupational Therapy">Occupational Therapy</option>
+              <option value="Social Work">Social Work</option>
+              <option value="Counseling">Counseling</option>
+              <option value="Dentistry">Dentistry</option>
+              <option value="Medicine">Medicine</option>
+              <option value="Veterinary">Veterinary</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Approved CE Hours *</label>
+            <input type="number" id="sem-hours" placeholder="e.g. 6.5" step="0.5" min="0.5" max="99" />
+          </div>
+          <div class="form-group">
+            <label>Organizer / Sponsor</label>
+            <input type="text" id="sem-sponsor" placeholder="Organization name" />
+          </div>
+        </div>
+        <hr class="divider" />
+        <div class="flex gap-2">
+          <button class="btn btn-primary" onclick="saveSeminar()">💾 Save Seminar</button>
+          <button class="btn btn-ghost" onclick="clearSeminarForm()">🔄 Clear Form</button>
+        </div>
+      </div>
+
+      <div class="card mt-2">
+        <h2><span class="icon">⚙️</span> Organizer Settings</h2>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Change PIN / Password</label>
+            <input type="password" id="settings-newpin" placeholder="New PIN (leave blank to keep)" maxlength="20" />
+          </div>
+          <div class="form-group">
+            <label>Confirm New PIN</label>
+            <input type="password" id="settings-newpin2" placeholder="Confirm new PIN" maxlength="20" />
+          </div>
+        </div>
+        <button class="btn btn-amber mt-2" onclick="changePin()">🔐 Update PIN</button>
+        <hr class="divider" />
+        <div>
+          <p class="text-sm text-muted mb-1">⚠️ Danger Zone</p>
+          <button class="btn btn-danger btn-sm" onclick="clearAllData()">🗑️ Clear All Data</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================
+         VIEW: REGISTER ATTENDEE
+    ==================================================== -->
+    <div id="view-register" class="view">
+      <div class="section-header mb-2">
+        <h2>➕ Register Attendee</h2>
+      </div>
+      <div class="card">
+        <h2><span class="icon">📝</span> Attendee Information</h2>
+        <div class="form-grid">
+          <div class="form-group">
+            <label>Full Name *</label>
+            <input type="text" id="reg-name" placeholder="First Last" />
+          </div>
+          <div class="form-group">
+            <label>License Number *</label>
+            <input type="text" id="reg-license" placeholder="e.g. RN-123456" />
+          </div>
+          <div class="form-group">
+            <label>Profession</label>
+            <select id="reg-profession">
+              <option value="">Select Profession</option>
+              <option value="Nursing">Nursing</option>
+              <option value="Pharmacy">Pharmacy</option>
+              <option value="Physical Therapy">Physical Therapy</option>
+              <option value="Occupational Therapy">Occupational Therapy</option>
+              <option value="Social Work">Social Work</option>
+              <option value="Counseling">Counseling</option>
+              <option value="Dentistry">Dentistry</option>
+              <option value="Medicine">Medicine</option>
+              <option value="Veterinary">Veterinary</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" id="reg-email" placeholder="name@example.com" />
+          </div>
+          <div class="form-group">
+            <label>Phone Number</label>
+            <input type="tel" id="reg-phone" placeholder="(555) 000-0000" />
+          </div>
+        </div>
+        <hr class="divider" />
+        <button class="btn btn-success" onclick="registerAttendee()">✅ Register &amp; Generate PIN</button>
+      </div>
+
+      <!-- PIN Result box (shown after registration) -->
+      <div id="reg-result" class="hidden mt-2">
+        <div class="card">
+          <h2><span class="icon">🔑</span> Registration Successful!</h2>
+          <div class="pin-box">
+            <div class="pin-label">Attendee Check-In PIN</div>
+            <div class="pin-value" id="reg-pin-display">0000</div>
+            <div class="pin-name" id="reg-pin-name"></div>
+          </div>
+          <p class="text-sm text-muted mt-2 text-center">
+            Please give this PIN to the attendee. They will use it to check in and check out.
+          </p>
+          <div class="flex gap-2 mt-2" style="justify-content:center">
+            <button class="btn btn-ghost" onclick="printPin()">🖨️ Print PIN</button>
+            <button class="btn btn-primary" onclick="registerAnother()">➕ Register Another</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================
+         VIEW: CHECK-IN / CHECK-OUT
+    ==================================================== -->
+    <div id="view-checkin" class="view">
+      <div class="section-header mb-2">
+        <h2>✅ Check-In / Check-Out Station</h2>
+      </div>
+      <div class="card" style="max-width:440px;margin:0 auto;">
+        <h2><span class="icon">🔢</span> Enter Attendee PIN</h2>
+        <p class="text-sm text-muted mb-2">
+          The attendee enters their 4-digit PIN to check in or check out.
+        </p>
+        <div class="form-group">
+          <label>4-Digit PIN</label>
+          <input type="text" id="checkin-pin" inputmode="numeric" maxlength="4"
+            placeholder="_ _ _ _" style="font-size:1.5rem;letter-spacing:.5rem;text-align:center;"
+            oninput="this.value=this.value.replace(/\D/g,'')"
+            onkeydown="if(event.key==='Enter') processCheckIn()" />
+        </div>
+        <button class="btn btn-primary btn-full mt-2" onclick="processCheckIn()">🔍 Submit PIN</button>
+        <hr class="divider" />
+        <div id="checkin-result" class="hidden">
+          <div id="checkin-result-content"></div>
+        </div>
+      </div>
+
+      <div class="card mt-2" style="max-width:440px;margin:1.25rem auto 0;">
+        <h2><span class="icon">📋</span> Recent Activity</h2>
+        <div id="recent-activity">
+          <p class="text-muted text-sm text-center">No recent activity.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====================================================
+         VIEW: ATTENDEES LIST
+    ==================================================== -->
+    <div id="view-attendees" class="view">
+      <div class="section-header mb-2">
+        <h2>👥 Attendee List</h2>
+        <div class="actions">
+          <button class="btn btn-ghost btn-sm" onclick="exportCSV()">⬇️ Export CSV</button>
+          <button class="btn btn-primary btn-sm" onclick="showView('register')">➕ Add</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="search-bar">
+          <input type="text" id="att-search" placeholder="🔍 Search attendees…"
+            oninput="renderAttendeesTable()" />
+          <select id="att-filter" onchange="renderAttendeesTable()"
+            style="background:var(--navy-dark);border:1px solid var(--border);color:var(--text);padding:.5rem .8rem;border-radius:7px;outline:none;">
+            <option value="">All Statuses</option>
+            <option value="registered">Registered</option>
+            <option value="checkedin">Checked In</option>
+            <option value="checkedout">Checked Out</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                <th>License #</th>
+                <th>Profession</th>
+                <th>Phone</th>
+                <th>PIN</th>
+                <th>Status</th>
+                <th>CE Hours</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="att-table-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main><!-- /#main -->
+
+  <footer>
+    SeminarCheckIn CE &copy; 2026 &mdash; All data stored locally in your browser.
+  </footer>
+</div><!-- /#app -->
+
+<!-- ============================================================
+     TOAST CONTAINER
+============================================================ -->
+<div id="toast-container"></div>
+
+<!-- ============================================================
+     MODAL: DELETE CONFIRM
+============================================================ -->
+<div id="modal-confirm" class="modal-overlay hidden">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-confirm')">✕</button>
+    <h3>⚠️ Confirm Action</h3>
+    <p id="modal-confirm-msg" class="text-sm text-muted mb-2"></p>
+    <div class="flex gap-2" style="justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal('modal-confirm')">Cancel</button>
+      <button class="btn btn-danger" id="modal-confirm-ok">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL: STRIPE PAYMENT
+============================================================ -->
+<div id="modal-stripe" class="modal-overlay hidden">
+  <div class="modal-box">
+    <button class="modal-close" onclick="closeModal('modal-stripe')">✕</button>
+    <h3>💳 Registration Payment</h3>
+    <p class="text-sm text-muted mb-2" id="stripe-desc">
+      This event has 11+ attendees. A processing fee is required.
+    </p>
+    <div id="stripe-payment-element-wrap">
+      <div class="form-group">
+        <label>Card Details</label>
+        <div id="stripe-card-element"></div>
+      </div>
+      <div id="stripe-card-errors" class="text-sm text-red mt-1"></div>
+    </div>
+    <div class="flex gap-2 mt-2" style="justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal('modal-stripe');stripePaymentCancelled()">Cancel</button>
+      <button class="btn btn-primary" id="stripe-submit-btn" onclick="submitStripePayment()">
+        💳 Pay & Register
+      </button>
+    </div>
+    <p class="hint-text mt-1">
+      ⚠️ Stripe key is a placeholder. Replace 'pk_test_REPLACE_WITH_KEY' in code with your publishable key.
+    </p>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL: CERTIFICATE PREVIEW
+============================================================ -->
+<div id="modal-cert" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:560px">
+    <button class="modal-close" onclick="closeModal('modal-cert')">✕</button>
+    <h3>🏆 Certificate Generated</h3>
+    <p class="text-sm text-muted mb-2" id="cert-msg"></p>
+    <div class="flex gap-2" style="justify-content:flex-end">
+      <button class="btn btn-ghost" onclick="closeModal('modal-cert')">Close</button>
+      <button class="btn btn-primary" id="cert-download-btn">⬇️ Download PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     JAVASCRIPT
+============================================================ -->
+<script>
+'use strict';
+
+// ============================================================
+// CONFIG
+// NOTE: Replace 'pk_test_REPLACE_WITH_KEY' with your actual Stripe
+// publishable key. In production, inject this from a server-side
+// environment variable or a build-time config. NEVER use a live
+// secret key in client-side code.
+// ============================================================
+const CONFIG = {
+  STRIPE_PUBLISHABLE_KEY: 'pk_test_REPLACE_WITH_KEY',
+  STRIPE_THRESHOLD: 11,  // show payment modal when attendees >= this number
+};
+
+// ============================================================
+// LOCAL STORAGE KEYS
+// ============================================================
+const LS = {
+  PIN:       'seminarCheckin_pin',
+  ORG:       'seminarCheckin_organizer',
+  SEMINAR:   'seminarCheckin_seminar',
+  ATTENDEES: 'seminarCheckin_attendees',
+  ACTIVITY:  'seminarCheckin_activity',
+};
+
+// ============================================================
+// STATE
+// ============================================================
+let state = {
+  loggedIn: false,
+  seminar: null,
+  attendees: [],
+  activity: [],
+  stripeInstance: null,
+  stripeCardElement: null,
+  pendingRegistrant: null, // holds reg data while payment is in progress
+};
+
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  loadState();
+  const hasPin = !!ls_get(LS.PIN);
+  if (!hasPin) switchAuthTab('setup');
+  else switchAuthTab('login');
+  // Set today's date as default for seminar
+  const today = new Date().toISOString().split('T')[0];
+  document.getElementById('sem-date').value = today;
+});
+
+function loadState() {
+  state.seminar   = ls_get(LS.SEMINAR) || null;
+  state.attendees = ls_get(LS.ATTENDEES) || [];
+  state.activity  = ls_get(LS.ACTIVITY) || [];
+}
+
+function saveAttendees() {
+  ls_set(LS.ATTENDEES, state.attendees);
+}
+
+function saveActivity() {
+  ls_set(LS.ACTIVITY, state.activity);
+}
+
+// ============================================================
+// localStorage HELPERS
+// ============================================================
+function ls_get(key) {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? JSON.parse(v) : null;
+  } catch { return null; }
+}
+function ls_set(key, val) {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch(e) { console.error(e); }
+}
+function ls_del(key) {
+  try { localStorage.removeItem(key); } catch(e) {}
+}
+
+// ============================================================
+// AUTH
+// ============================================================
+function switchAuthTab(tab) {
+  document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+  document.getElementById('tab-setup').classList.toggle('active', tab === 'setup');
+  document.getElementById('auth-login-form').classList.toggle('hidden', tab !== 'login');
+  document.getElementById('auth-setup-form').classList.toggle('hidden', tab !== 'setup');
+}
+
+function doLogin() {
+  const pin = document.getElementById('login-pin').value.trim();
+  if (!pin) { toast('Please enter your PIN.', 'error'); return; }
+  const stored = ls_get(LS.PIN);
+  if (!stored) { toast('No account found. Please use First-Time Setup.', 'error'); return; }
+  if (pin !== stored) { toast('Incorrect PIN. Please try again.', 'error'); return; }
+  state.loggedIn = true;
+  document.getElementById('login-pin').value = '';
+  enterApp();
+}
+
+function doSetup() {
+  const name = document.getElementById('setup-name').value.trim();
+  const pin  = document.getElementById('setup-pin').value.trim();
+  const pin2 = document.getElementById('setup-pin2').value.trim();
+  if (!name) { toast('Please enter your organizer name.', 'error'); return; }
+  if (!pin || pin.length < 4) { toast('PIN must be at least 4 characters.', 'error'); return; }
+  if (pin !== pin2) { toast('PINs do not match.', 'error'); return; }
+  ls_set(LS.PIN, pin);
+  ls_set(LS.ORG, name);
+  toast('Account created! Welcome, ' + name + '!', 'success');
+  state.loggedIn = true;
+  enterApp();
+}
+
+function doLogout() {
+  state.loggedIn = false;
+  document.getElementById('topbar').classList.add('hidden');
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.getElementById('view-login').classList.add('active');
+  document.getElementById('login-pin').value = '';
+}
+
+function changePin() {
+  const np  = document.getElementById('settings-newpin').value.trim();
+  const np2 = document.getElementById('settings-newpin2').value.trim();
+  if (!np) { toast('Please enter a new PIN.', 'error'); return; }
+  if (np.length < 4) { toast('PIN must be at least 4 characters.', 'error'); return; }
+  if (np !== np2) { toast('PINs do not match.', 'error'); return; }
+  ls_set(LS.PIN, np);
+  toast('PIN updated successfully.', 'success');
+  document.getElementById('settings-newpin').value = '';
+  document.getElementById('settings-newpin2').value = '';
+}
+
+function enterApp() {
+  document.getElementById('topbar').classList.remove('hidden');
+  loadState();
+  if (state.seminar) {
+    populateSeminarForm();
+    document.getElementById('nav-seminar-name').textContent = state.seminar.name || '';
+  }
+  showView('dashboard');
+}
+
+// ============================================================
+// VIEWS
+// ============================================================
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('#main-nav button').forEach(b => b.classList.remove('active'));
+  const view = document.getElementById('view-' + name);
+  if (view) view.classList.add('active');
+  const btn = document.querySelector(`#main-nav button[data-view="${name}"]`);
+  if (btn) btn.classList.add('active');
+
+  // Render the appropriate view data
+  if (name === 'dashboard') renderDashboard();
+  if (name === 'attendees') renderAttendeesTable();
+  if (name === 'checkin')   renderRecentActivity();
+}
+
+// ============================================================
+// SEMINAR
+// ============================================================
+function saveSeminar() {
+  const name     = document.getElementById('sem-name').value.trim();
+  const date     = document.getElementById('sem-date').value;
+  const location = document.getElementById('sem-location').value.trim();
+  const profession = document.getElementById('sem-profession').value;
+  const hours    = parseFloat(document.getElementById('sem-hours').value);
+  const sponsor  = document.getElementById('sem-sponsor').value.trim();
+
+  if (!name)    { toast('Seminar name is required.', 'error'); return; }
+  if (!date)    { toast('Seminar date is required.', 'error'); return; }
+  if (!hours || hours <= 0) { toast('Approved CE hours must be > 0.', 'error'); return; }
+
+  state.seminar = { name, date, location, profession, hours, sponsor };
+  ls_set(LS.SEMINAR, state.seminar);
+  document.getElementById('nav-seminar-name').textContent = name;
+  toast('Seminar saved successfully! ✅', 'success');
+  showView('dashboard');
+}
+
+function populateSeminarForm() {
+  if (!state.seminar) return;
+  document.getElementById('sem-name').value     = state.seminar.name     || '';
+  document.getElementById('sem-date').value     = state.seminar.date     || '';
+  document.getElementById('sem-location').value = state.seminar.location || '';
+  document.getElementById('sem-profession').value = state.seminar.profession || '';
+  document.getElementById('sem-hours').value    = state.seminar.hours    || '';
+  document.getElementById('sem-sponsor').value  = state.seminar.sponsor  || '';
+}
+
+function clearSeminarForm() {
+  ['sem-name','sem-date','sem-location','sem-hours','sem-sponsor'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('sem-profession').value = '';
+}
+
+// ============================================================
+// ATTENDEE REGISTRATION
+// ============================================================
+function registerAttendee() {
+  const name     = document.getElementById('reg-name').value.trim();
+  const license  = document.getElementById('reg-license').value.trim();
+  const profession = document.getElementById('reg-profession').value;
+  const email    = document.getElementById('reg-email').value.trim();
+  const phone    = document.getElementById('reg-phone').value.trim();
+
+  if (!name)    { toast('Attendee name is required.', 'error'); return; }
+  if (!license) { toast('License number is required.', 'error'); return; }
+
+  // Check for duplicate license
+  if (state.attendees.some(a => a.license.toLowerCase() === license.toLowerCase())) {
+    toast('An attendee with this license number is already registered.', 'error');
+    return;
+  }
+
+  const registrant = { name, license, profession, email, phone };
+
+  // Check if Stripe payment required (11+ attendees threshold)
+  if (state.attendees.length + 1 >= CONFIG.STRIPE_THRESHOLD) {
+    state.pendingRegistrant = registrant;
+    showStripeModal(registrant);
+    return;
+  }
+
+  finalizeRegistration(registrant);
+}
+
+function finalizeRegistration(registrant) {
+  const pin = generatePIN();
+  const id  = 'att_' + Date.now() + '_' + Math.random().toString(36).substr(2,6);
+  const attendee = {
+    id,
+    name: registrant.name,
+    license: registrant.license,
+    profession: registrant.profession || (state.seminar ? state.seminar.profession : ''),
+    email: registrant.email,
+    phone: registrant.phone,
+    pin,
+    status: 'registered',
+    registeredAt: new Date().toISOString(),
+    checkinAt: null,
+    checkoutAt: null,
+    ceHours: null,
+  };
+
+  state.attendees.push(attendee);
+  saveAttendees();
+
+  // Show PIN result
+  document.getElementById('reg-pin-display').textContent = pin;
+  document.getElementById('reg-pin-name').textContent = attendee.name;
+  document.getElementById('reg-result').classList.remove('hidden');
+
+  // Clear form
+  ['reg-name','reg-license','reg-email','reg-phone'].forEach(id => {
+    document.getElementById(id).value = '';
+  });
+  document.getElementById('reg-profession').value = '';
+
+  toast(`${attendee.name} registered! PIN: ${pin}`, 'success');
+}
+
+function generatePIN() {
+  // Generate unique 4-digit PIN
+  let pin, attempts = 0;
+  do {
+    pin = String(Math.floor(1000 + Math.random() * 9000));
+    attempts++;
+  } while (state.attendees.some(a => a.pin === pin) && attempts < 1000);
+  return pin;
+}
+
+function registerAnother() {
+  document.getElementById('reg-result').classList.add('hidden');
+}
+
+function printPin() {
+  const pin  = document.getElementById('reg-pin-display').textContent;
+  const name = document.getElementById('reg-pin-name').textContent;
+  const semName = state.seminar ? state.seminar.name : 'Seminar';
+  const w = window.open('', '_blank', 'width=400,height=350');
+  w.document.write(`
+    <html><head><title>PIN Slip</title>
+    <style>
+      body{font-family:sans-serif;text-align:center;padding:2rem;background:#fff;color:#111}
+      h2{font-size:1.1rem;margin-bottom:.25rem}
+      p{font-size:.85rem;color:#555;margin-bottom:1rem}
+      .pin{font-size:3.5rem;font-weight:900;letter-spacing:.8rem;color:#1B2A4A;margin:1rem 0}
+      .footer{font-size:.75rem;color:#999;margin-top:1.5rem}
+    </style></head>
+    <body>
+      <h2>🎓 ${semName}</h2>
+      <p>${name}</p>
+      <div class="pin">${pin}</div>
+      <p>Keep this PIN to check in and check out.</p>
+      <div class="footer">SeminarCheckIn CE</div>
+      <script>window.print();window.close();<\/script>
+    </body></html>
+  `);
+}
+
+// ============================================================
+// CHECK-IN / CHECK-OUT
+// ============================================================
+function processCheckIn() {
+  const pinInput = document.getElementById('checkin-pin').value.trim();
+  const resultDiv  = document.getElementById('checkin-result');
+  const resultContent = document.getElementById('checkin-result-content');
+
+  if (!pinInput || pinInput.length !== 4) {
+    toast('Please enter a 4-digit PIN.', 'error');
+    return;
+  }
+
+  const attendee = state.attendees.find(a => a.pin === pinInput);
+  if (!attendee) {
+    showCheckinResult('error', `❌ PIN not found. No attendee with PIN <strong>${pinInput}</strong> is registered.`);
+    document.getElementById('checkin-pin').value = '';
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  if (attendee.status === 'registered') {
+    // CHECK IN
+    attendee.status = 'checkedin';
+    attendee.checkinAt = now;
+    saveAttendees();
+    addActivity({ type: 'checkin', attendeeId: attendee.id, name: attendee.name, time: now });
+    showCheckinResult('checkin', `
+      <div style="text-align:center">
+        <div style="font-size:2.5rem">✅</div>
+        <h3 style="color:var(--green);margin:.5rem 0">Checked In!</h3>
+        <p class="fw-bold">${attendee.name}</p>
+        <p class="text-sm text-muted">License: ${attendee.license}</p>
+        <p class="text-sm text-muted">Time: ${fmtTime(now)}</p>
+      </div>
+    `);
+    toast(`${attendee.name} checked in!`, 'success');
+
+  } else if (attendee.status === 'checkedin') {
+    // CHECK OUT
+    attendee.status = 'checkedout';
+    attendee.checkoutAt = now;
+    const hours = state.seminar ? state.seminar.hours : 0;
+    attendee.ceHours = hours;
+    saveAttendees();
+    addActivity({ type: 'checkout', attendeeId: attendee.id, name: attendee.name, time: now, ceHours: hours });
+    showCheckinResult('checkout', `
+      <div style="text-align:center">
+        <div style="font-size:2.5rem">🏁</div>
+        <h3 style="color:var(--accent);margin:.5rem 0">Checked Out!</h3>
+        <p class="fw-bold">${attendee.name}</p>
+        <p class="text-sm text-muted">License: ${attendee.license}</p>
+        <p class="text-sm" style="color:var(--green);margin-top:.4rem">
+          🎓 CE Hours Earned: <strong>${hours}</strong>
+        </p>
+        <p class="text-sm text-muted">Time: ${fmtTime(now)}</p>
+        <button class="btn btn-primary btn-sm mt-2" onclick="generateCertificate('${attendee.id}')">
+          📄 Generate Certificate
+        </button>
+      </div>
+    `);
+    toast(`${attendee.name} checked out — ${hours} CE hours earned!`, 'info');
+
+  } else if (attendee.status === 'checkedout') {
+    showCheckinResult('info', `
+      <div style="text-align:center">
+        <div style="font-size:2rem">ℹ️</div>
+        <p class="fw-bold mt-1">${attendee.name}</p>
+        <p class="text-sm text-muted">This attendee has already checked out.</p>
+        <p class="text-sm" style="color:var(--accent)">CE Hours: ${attendee.ceHours || 0}</p>
+        <button class="btn btn-ghost btn-sm mt-2" onclick="generateCertificate('${attendee.id}')">
+          📄 Re-Download Certificate
+        </button>
+      </div>
+    `);
+  }
+
+  document.getElementById('checkin-pin').value = '';
+  renderRecentActivity();
+}
+
+function showCheckinResult(type, html) {
+  const rd = document.getElementById('checkin-result');
+  const rc = document.getElementById('checkin-result-content');
+  rd.classList.remove('hidden');
+  const colors = { checkin:'var(--green)', checkout:'var(--accent)', error:'var(--red)', info:'var(--muted)' };
+  rd.style.border = `1px solid ${colors[type] || colors.info}`;
+  rd.style.borderRadius = '8px';
+  rd.style.padding = '1rem';
+  rc.innerHTML = html;
+}
+
+function addActivity(entry) {
+  state.activity.unshift(entry);
+  if (state.activity.length > 50) state.activity = state.activity.slice(0, 50);
+  saveActivity();
+}
+
+function renderRecentActivity() {
+  const container = document.getElementById('recent-activity');
+  if (!state.activity.length) {
+    container.innerHTML = '<p class="text-muted text-sm text-center">No recent activity.</p>';
+    return;
+  }
+  const items = state.activity.slice(0, 10).map(a => {
+    const icon = a.type === 'checkin' ? '✅' : '🏁';
+    const label = a.type === 'checkin' ? 'checked in' : 'checked out';
+    const color = a.type === 'checkin' ? 'var(--green)' : 'var(--accent)';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--border);font-size:.82rem">
+      <span>${icon} <strong>${escHtml(a.name)}</strong> <span style="color:${color}">${label}</span></span>
+      <span class="text-muted">${fmtTime(a.time)}</span>
+    </div>`;
+  }).join('');
+  container.innerHTML = items;
+}
+
+// ============================================================
+// CERTIFICATE GENERATION (jsPDF)
+// ============================================================
+function generateCertificate(attendeeId) {
+  const attendee = state.attendees.find(a => a.id === attendeeId);
+  if (!attendee) { toast('Attendee not found.', 'error'); return; }
+  if (!state.seminar) { toast('No seminar configured.', 'error'); return; }
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+
+    // Background
+    doc.setFillColor(27, 42, 74); // navy
+    doc.rect(0, 0, W, H, 'F');
+
+    // Gold border
+    doc.setDrawColor(212, 175, 55);
+    doc.setLineWidth(2);
+    doc.rect(10, 10, W - 20, H - 20);
+    doc.setLineWidth(0.5);
+    doc.rect(13, 13, W - 26, H - 26);
+
+    // Header accent bar
+    doc.setFillColor(59, 130, 246);
+    doc.rect(10, 10, W - 20, 18, 'F');
+
+    // Title text
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(14);
+    doc.setFont('helvetica', 'bold');
+    doc.text('CERTIFICATE OF COMPLETION', W / 2, 22, { align: 'center' });
+
+    doc.setTextColor(212, 175, 55);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Continuing Education', W / 2, 32, { align: 'center' });
+
+    // Presenter line
+    doc.setTextColor(180, 200, 230);
+    doc.setFontSize(11);
+    doc.text('This certifies that', W / 2, 50, { align: 'center' });
+
+    // Attendee name — large
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(30);
+    doc.setFont('helvetica', 'bold');
+    doc.text(attendee.name, W / 2, 72, { align: 'center' });
+
+    // Underline under name
+    doc.setDrawColor(212, 175, 55);
+    doc.setLineWidth(0.8);
+    const nameW = doc.getTextWidth(attendee.name);
+    doc.line(W / 2 - nameW / 2 - 5, 76, W / 2 + nameW / 2 + 5, 76);
+
+    // License
+    doc.setTextColor(180, 200, 230);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`License #: ${attendee.license}`, W / 2, 84, { align: 'center' });
+
+    // Has successfully completed
+    doc.setTextColor(180, 200, 230);
+    doc.setFontSize(11);
+    doc.text('has successfully completed', W / 2, 96, { align: 'center' });
+
+    // Seminar name
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    const semLines = doc.splitTextToSize(state.seminar.name, W - 60);
+    doc.text(semLines, W / 2, 108, { align: 'center' });
+
+    // CE hours badge area
+    const badgeY = 124 + (semLines.length - 1) * 7;
+    doc.setFillColor(16, 185, 129); // green
+    doc.roundedRect(W / 2 - 35, badgeY - 6, 70, 14, 3, 3, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`${attendee.ceHours} CE Hours`, W / 2, badgeY + 3.5, { align: 'center' });
+
+    // Details row
+    const detailY = badgeY + 22;
+    doc.setTextColor(180, 200, 230);
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    const semDate = state.seminar.date ? new Date(state.seminar.date + 'T12:00:00').toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' }) : '';
+    const details = [
+      state.seminar.location ? `📍 ${state.seminar.location}` : null,
+      semDate ? `📅 ${semDate}` : null,
+      attendee.profession ? `🏥 ${attendee.profession}` : null,
+      state.seminar.sponsor ? `🏛 ${state.seminar.sponsor}` : null,
+    ].filter(Boolean);
+    const spacing = (W - 30) / details.length;
+    details.forEach((d, i) => {
+      doc.text(d, 15 + spacing * i + spacing / 2, detailY, { align: 'center' });
+    });
+
+    // Footer
+    doc.setFillColor(20, 32, 58);
+    doc.rect(10, H - 22, W - 20, 12, 'F');
+    doc.setTextColor(100, 130, 180);
+    doc.setFontSize(7.5);
+    doc.text('Generated by SeminarCheckIn CE  •  ' + new Date().toLocaleString(), W / 2, H - 14, { align: 'center' });
+
+    // Save
+    const filename = `CE_Certificate_${attendee.name.replace(/\s+/g, '_')}_${(state.seminar.name || 'Seminar').replace(/\s+/g,'_')}.pdf`;
+    doc.save(filename);
+    toast('Certificate downloaded!', 'success');
+  } catch(err) {
+    console.error('jsPDF error:', err);
+    toast('Error generating certificate. Check console.', 'error');
+  }
+}
+
+function resendCertificate(attendeeId) {
+  const attendee = state.attendees.find(a => a.id === attendeeId);
+  if (!attendee) return;
+  // In production, this would trigger an email send via your API
+  alert(`📧 Re-send Certificate\n\nAttendee: ${attendee.name}\nEmail: ${attendee.email || '(no email on file)'}\n\nIn production, this would trigger an email to the attendee's address. Integrate with your email API here.`);
+}
+
+// ============================================================
+// DASHBOARD RENDER
+// ============================================================
+function renderDashboard() {
+  loadState();
+  const total      = state.attendees.length;
+  const checkedin  = state.attendees.filter(a => a.status === 'checkedin').length;
+  const checkedout = state.attendees.filter(a => a.status === 'checkedout').length;
+  const registered = state.attendees.filter(a => a.status === 'registered').length;
+
+  document.getElementById('stat-total').textContent     = total;
+  document.getElementById('stat-checkedin').textContent  = checkedin;
+  document.getElementById('stat-checkedout').textContent = checkedout;
+  document.getElementById('stat-registered').textContent = registered;
+
+  if (state.seminar) {
+    const bar = document.getElementById('seminar-bar-dash');
+    bar.classList.remove('hidden');
+    document.getElementById('dash-sem-name').textContent = state.seminar.name;
+    const semDate = state.seminar.date ? new Date(state.seminar.date + 'T12:00:00').toLocaleDateString() : '';
+    document.getElementById('dash-sem-meta').innerHTML = [
+      state.seminar.date     ? `<span>📅 ${semDate}</span>` : '',
+      state.seminar.location ? `<span>📍 ${state.seminar.location}</span>` : '',
+      state.seminar.profession ? `<span>🏥 ${state.seminar.profession}</span>` : '',
+    ].join('');
+    document.getElementById('dash-ce-badge').textContent = `${state.seminar.hours} CE Hours`;
+  }
+
+  renderDashTable();
+}
+
+function renderDashTable() {
+  const search = (document.getElementById('dash-search')?.value || '').toLowerCase();
+  const filter = document.getElementById('dash-filter')?.value || '';
+  const tbody = document.getElementById('dash-table-body');
+
+  let list = state.attendees.filter(a => {
+    if (filter && a.status !== filter) return false;
+    if (search) {
+      return (
+        a.name.toLowerCase().includes(search) ||
+        a.license.toLowerCase().includes(search) ||
+        (a.email || '').toLowerCase().includes(search) ||
+        a.pin.includes(search)
+      );
+    }
+    return true;
+  });
+
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="11"><div class="no-data"><span class="icon">👤</span>No attendees found.</div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map((a, i) => `
+    <tr>
+      <td class="text-muted text-sm">${i + 1}</td>
+      <td class="fw-bold">${escHtml(a.name)}</td>
+      <td class="text-sm">${escHtml(a.license)}</td>
+      <td class="text-sm">${escHtml(a.profession || '—')}</td>
+      <td class="text-sm">${escHtml(a.email || '—')}</td>
+      <td><span style="font-family:monospace;font-weight:700;color:var(--accent)">${a.pin}</span></td>
+      <td>${statusBadge(a.status)}</td>
+      <td class="text-sm text-muted">${a.checkinAt ? fmtTime(a.checkinAt) : '—'}</td>
+      <td class="text-sm text-muted">${a.checkoutAt ? fmtTime(a.checkoutAt) : '—'}</td>
+      <td class="text-sm ${a.ceHours ? 'text-green fw-bold' : 'text-muted'}">${a.ceHours !== null ? a.ceHours + ' hrs' : '—'}</td>
+      <td>
+        <div class="action-btns">
+          ${a.status === 'checkedout' ? `<button class="btn btn-ghost btn-sm" onclick="generateCertificate('${a.id}')">📄 Cert</button>` : ''}
+          ${a.email ? `<button class="btn btn-ghost btn-sm" onclick="resendCertificate('${a.id}')">📧</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="removeAttendee('${a.id}')">🗑</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ============================================================
+// ATTENDEES TABLE RENDER
+// ============================================================
+function renderAttendeesTable() {
+  loadState();
+  const search = (document.getElementById('att-search')?.value || '').toLowerCase();
+  const filter = document.getElementById('att-filter')?.value || '';
+  const tbody = document.getElementById('att-table-body');
+
+  let list = state.attendees.filter(a => {
+    if (filter && a.status !== filter) return false;
+    if (search) {
+      return (
+        a.name.toLowerCase().includes(search) ||
+        a.license.toLowerCase().includes(search) ||
+        (a.email || '').toLowerCase().includes(search)
+      );
+    }
+    return true;
+  });
+
+  if (!list.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="no-data"><span class="icon">👤</span>No attendees found.</div></td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = list.map((a, i) => `
+    <tr>
+      <td class="text-muted text-sm">${i + 1}</td>
+      <td class="fw-bold">${escHtml(a.name)}</td>
+      <td class="text-sm">${escHtml(a.license)}</td>
+      <td class="text-sm">${escHtml(a.profession || '—')}</td>
+      <td class="text-sm">${escHtml(a.phone || '—')}</td>
+      <td><span style="font-family:monospace;font-weight:700;color:var(--accent)">${a.pin}</span></td>
+      <td>${statusBadge(a.status)}</td>
+      <td class="text-sm ${a.ceHours ? 'text-green fw-bold' : 'text-muted'}">${a.ceHours !== null ? a.ceHours + ' hrs' : '—'}</td>
+      <td>
+        <div class="action-btns">
+          ${a.status === 'checkedout' ? `<button class="btn btn-primary btn-sm" onclick="generateCertificate('${a.id}')">📄 Certificate</button>` : ''}
+          ${a.email ? `<button class="btn btn-ghost btn-sm" onclick="resendCertificate('${a.id}')">📧 Re-send</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="removeAttendee('${a.id}')">🗑️ Remove</button>
+        </div>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ============================================================
+// REMOVE ATTENDEE
+// ============================================================
+function removeAttendee(id) {
+  const attendee = state.attendees.find(a => a.id === id);
+  if (!attendee) return;
+  showConfirm(`Remove ${attendee.name}? This cannot be undone.`, () => {
+    state.attendees = state.attendees.filter(a => a.id !== id);
+    saveAttendees();
+    renderDashboard();
+    renderAttendeesTable();
+    toast(`${attendee.name} removed.`, 'info');
+  });
+}
+
+// ============================================================
+// CLEAR ALL DATA
+// ============================================================
+function clearAllData() {
+  showConfirm('⚠️ This will permanently delete ALL attendees, activity logs, and seminar data. Your login PIN will remain. This action is irreversible.', () => {
+    ls_del(LS.ATTENDEES);
+    ls_del(LS.SEMINAR);
+    ls_del(LS.ACTIVITY);
+    state.attendees = [];
+    state.seminar   = null;
+    state.activity  = [];
+    toast('All data cleared.', 'info');
+    renderDashboard();
+    clearSeminarForm();
+  });
+}
+
+// ============================================================
+// EXPORT CSV
+// ============================================================
+function exportCSV() {
+  if (!state.attendees.length) { toast('No attendees to export.', 'info'); return; }
+  const semName = state.seminar ? state.seminar.name : 'Seminar';
+  const headers = ['Name','License #','Profession','Email','Phone','PIN','Status','Check-In Time','Check-Out Time','CE Hours'];
+  const rows = state.attendees.map(a => [
+    csvEsc(a.name),
+    csvEsc(a.license),
+    csvEsc(a.profession || ''),
+    csvEsc(a.email || ''),
+    csvEsc(a.phone || ''),
+    a.pin,
+    a.status,
+    a.checkinAt  ? fmtTime(a.checkinAt)  : '',
+    a.checkoutAt ? fmtTime(a.checkoutAt) : '',
+    a.ceHours !== null ? a.ceHours : '',
+  ]);
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `${semName.replace(/\s+/g,'_')}_Attendees.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast('CSV exported!', 'success');
+}
+
+function csvEsc(val) {
+  const s = String(val || '');
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+}
+
+// ============================================================
+// STRIPE PAYMENT
+// ============================================================
+function showStripeModal(registrant) {
+  const desc = document.getElementById('stripe-desc');
+  desc.textContent = `This event has reached ${state.attendees.length + 1} registrations (threshold: ${CONFIG.STRIPE_THRESHOLD}+). A processing fee is required to continue.`;
+
+  openModal('modal-stripe');
+
+  // Initialize Stripe
+  try {
+    if (!state.stripeInstance) {
+      // Using placeholder key — replace with real key from env
+      state.stripeInstance = Stripe(CONFIG.STRIPE_PUBLISHABLE_KEY);
+    }
+    const elements = state.stripeInstance.elements();
+    if (state.stripeCardElement) {
+      state.stripeCardElement.unmount();
+      state.stripeCardElement = null;
+    }
+    state.stripeCardElement = elements.create('card', {
+      style: {
+        base: {
+          color: '#E2E8F0',
+          fontFamily: 'Segoe UI, sans-serif',
+          fontSize: '15px',
+          '::placeholder': { color: '#94A3B8' },
+        },
+        invalid: { color: '#EF4444' },
+      },
+    });
+    state.stripeCardElement.mount('#stripe-card-element');
+    state.stripeCardElement.on('change', e => {
+      document.getElementById('stripe-card-errors').textContent = e.error ? e.error.message : '';
+    });
+  } catch(err) {
+    console.error('Stripe init error:', err);
+    document.getElementById('stripe-payment-element-wrap').innerHTML =
+      `<p class="text-amber text-sm">⚠️ Stripe could not be initialized. The publishable key is a placeholder. Replace it to enable payments. <br><br>Click "Pay & Register" to register anyway (demo mode).</p>`;
+  }
+}
+
+function submitStripePayment() {
+  const btn = document.getElementById('stripe-submit-btn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Processing…';
+
+  if (!state.stripeInstance || !state.stripeCardElement) {
+    // Demo mode — Stripe not properly initialized with real key
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = '💳 Pay & Register';
+      closeModal('modal-stripe');
+      toast('Demo mode: payment skipped. Registering attendee.', 'info');
+      if (state.pendingRegistrant) {
+        finalizeRegistration(state.pendingRegistrant);
+        state.pendingRegistrant = null;
+      }
+    }, 800);
+    return;
+  }
+
+  // In production, you would:
+  // 1. Create a PaymentIntent on your backend => get client_secret
+  // 2. Call stripe.confirmCardPayment(clientSecret, { payment_method: { card: ... } })
+  // For now, we simulate the flow.
+  state.stripeInstance.createToken(state.stripeCardElement).then(result => {
+    btn.disabled = false;
+    btn.textContent = '💳 Pay & Register';
+    if (result.error) {
+      document.getElementById('stripe-card-errors').textContent = result.error.message;
+      return;
+    }
+    // Token created — in production, send result.token.id to your backend
+    closeModal('modal-stripe');
+    toast('Payment processed (demo token: ' + result.token.id + '). Registering attendee.', 'success');
+    if (state.pendingRegistrant) {
+      finalizeRegistration(state.pendingRegistrant);
+      state.pendingRegistrant = null;
+    }
+  }).catch(err => {
+    btn.disabled = false;
+    btn.textContent = '💳 Pay & Register';
+    document.getElementById('stripe-card-errors').textContent = 'Payment error. Try again.';
+  });
+}
+
+function stripePaymentCancelled() {
+  state.pendingRegistrant = null;
+  toast('Registration cancelled.', 'info');
+}
+
+// ============================================================
+// MODALS
+// ============================================================
+function openModal(id) {
+  document.getElementById(id).classList.remove('hidden');
+}
+function closeModal(id) {
+  document.getElementById(id).classList.add('hidden');
+}
+
+function showConfirm(msg, onOk) {
+  document.getElementById('modal-confirm-msg').textContent = msg;
+  const okBtn = document.getElementById('modal-confirm-ok');
+  const handler = () => {
+    closeModal('modal-confirm');
+    okBtn.removeEventListener('click', handler);
+    onOk();
+  };
+  okBtn.addEventListener('click', handler);
+  openModal('modal-confirm');
+}
+
+// ============================================================
+// TOAST NOTIFICATIONS
+// ============================================================
+function toast(msg, type = 'info') {
+  const container = document.getElementById('toast-container');
+  const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.innerHTML = `<span>${icons[type] || 'ℹ️'}</span><span>${escHtml(msg)}</span>`;
+  container.appendChild(t);
+  setTimeout(() => {
+    t.style.animation = 'fadeOut .35s ease forwards';
+    setTimeout(() => t.remove(), 350);
+  }, 3500);
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function statusBadge(status) {
+  const map = {
+    registered:  ['badge-registered', 'Registered'],
+    checkedin:   ['badge-checkedin',  'Checked In'],
+    checkedout:  ['badge-checkedout', 'Checked Out'],
+  };
+  const [cls, label] = map[status] || ['badge-registered', status];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+
+function fmtTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('en-US', {
+      month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+  } catch { return iso; }
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/"/g,  '&quot;')
+    .replace(/'/g,  '&#039;');
+}
+</script>
+</body>
+</html>
