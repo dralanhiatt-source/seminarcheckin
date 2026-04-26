@@ -655,6 +655,45 @@
       font-weight: 600;
     }
     .mobile-menu__cta { margin-top: 40px; }
+
+    /* ===== POWERED BY MIA BAND ===== */
+    .mia-band {
+      background: #0f1a2e;
+      padding: 22px 0;
+      border-top: 1px solid rgba(255,255,255,.04);
+    }
+    .mia-band__inner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .mia-avatar {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #1B2A4A 0%, #2F80ED 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: .82rem; color: #fff;
+      flex-shrink: 0;
+      letter-spacing: .05em;
+    }
+    .mia-band__text {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .mia-band__title {
+      font-weight: 700;
+      font-size: .95rem;
+      color: rgba(255,255,255,.82);
+      line-height: 1.2;
+    }
+    .mia-band__sub {
+      font-size: .78rem;
+      color: rgba(255,255,255,.38);
+      line-height: 1.4;
+    }
   </style>
 </head>
 <body>
@@ -1136,6 +1175,18 @@
     <p class="cta-band__note">Free for up to 10 attendees · No time limit · Upgrade only when you need to</p>
   </div>
 </section>
+
+<!-- TODO: Replace .mia-avatar with base64 image when mia-avatar.jpg is available -->
+<!-- ===== POWERED BY MIA ===== -->
+<div class="mia-band" aria-label="Powered by MIA AI">
+  <div class="container mia-band__inner">
+    <div class="mia-avatar" aria-hidden="true">MIA</div>
+    <div class="mia-band__text">
+      <span class="mia-band__title">Powered by MIA AI</span>
+      <span class="mia-band__sub">Intelligent automation built on LifePulse AI technology</span>
+    </div>
+  </div>
+</div>
 
 <!-- ===== FOOTER ===== -->
 <footer class="footer" role="contentinfo">
